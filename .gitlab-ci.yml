@@ -1,9 +1,8 @@
-"Python 2.7 AMD CPU (+GL and special func)":
+"Python 2.7 AMD CPU":
   script:
   - export PY_EXE=python2.7
   - export PYOPENCL_TEST=amd:pu
-  - export EXTRA_INSTALL="numpy mako scipy pyfmmlib"
-  - echo "CL_ENABLE_GL = True" > siteconf.py
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   allow_failure: true
@@ -14,111 +13,75 @@
   except:
   - tags
 
-Python 3.5 Intel CPU:
+Python 3.6 Intel CPU:
   script:
-  - export PY_EXE=python3.5
+  - export PY_EXE=python3.6
   - export PYOPENCL_TEST="intel(r):pu"
-  - export EXTRA_INSTALL="numpy mako"
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
+  allow_failure: true
   tags:
-  - python3.5
+  - python3.6
   - intel-cl-cpu
   except:
   - tags
 
-Python 3.5 AMD CPU:
+Python 3.6 AMD CPU:
   script:
-  - export PY_EXE=python3.5
+  - export PY_EXE=python3.6
   - export PYOPENCL_TEST=amd:pu
-  - export EXTRA_INSTALL="numpy mako"
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   allow_failure: true
   tags:
-  - python3.5
+  - python3.6
   - amd-cl-cpu
   except:
   - tags
 
-Python 2.6 AMD CPU:
-  script:
-  - export PY_EXE=python2.6
-  - export PYOPENCL_TEST=amd:pu
-  - export EXTRA_INSTALL="numpy mako"
-  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-  - ". ./build-and-test-py-project.sh"
-  allow_failure: true
-  tags:
-  - python2.6
-  - amd-cl-cpu
-  except:
-  - tags
-
-Python 3.5 Titan X:
+Python 3.6 Titan X:
   script:
   - export PY_EXE=python3.5
   - export PYOPENCL_TEST=nvi:titan
-  - export EXTRA_INSTALL="numpy mako"
-  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-  - ". ./build-and-test-py-project.sh"
-  tags:
-  - python3.5
-  - nvidia-titan-x
-  except:
-  - tags
-
-Python 3.5 K40:
-  script:
-  - export PY_EXE=python3.5
-  - export PYOPENCL_TEST=nvi:k40
-  - export EXTRA_INSTALL="numpy mako"
-  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-  - ". ./build-and-test-py-project.sh"
-  tags:
-  - python3.5
-  - nvidia-k40
-  except:
-  - tags
-
-Python 3.5 AMD GPU:
-  script:
-  - export PY_EXE=python3.5
-  - export PYOPENCL_TEST=amd:fiji
-  - export EXTRA_INSTALL="numpy mako"
-  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-  - ". ./build-and-test-py-project.sh"
-  allow_failure: true
-  tags:
-  - python3.5
-  - amd-fiji
-  except:
-  - tags
-
-Python 3.6 POCL:
-  script:
-  - export PY_EXE=python3.6
-  - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako"
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   tags:
   - python3.6
-  - pocl
+  - nvidia-titan-x
   except:
   - tags
 
-Python 3.5 POCL CL 1.1:
+Python 3.6 K40:
   script:
-  - export PY_EXE=python3.5
-  - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako"
+  - export PY_EXE=python3.6
+  - export PYOPENCL_TEST=nvi:k40
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-  - echo "CL_PRETEND_VERSION = '1.1'" > siteconf.py
   - ". ./build-and-test-py-project.sh"
   tags:
-  - python3.5
-  - pocl
+  - python3.6
+  - nvidia-k40
+  except:
+  - tags
+
+Python 3.6 AMD GPU:
+  script:
+  - export PY_EXE=python3.6
+  - export PYOPENCL_TEST=amd:fiji
+  - export EXTRA_INSTALL="pybind11 numpy mako"
+
+  # https://andreask.cs.illinois.edu/MachineShop/UserNotes
+  - export OCL_ICD_VENDORS=/etc/OpenCLwithAMD/vendors
+
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - ". ./build-and-test-py-project.sh"
+  allow_failure: true
+  tags:
+  - python3.6
+  - amd-fiji
   except:
   - tags
 
@@ -126,7 +89,7 @@ Python 2.7 POCL:
   script:
   - export PY_EXE=python2.7
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako"
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
   tags:
@@ -135,11 +98,65 @@ Python 2.7 POCL:
   except:
   - tags
 
+Python 3.7 POCL:
+  script:
+  - export PY_EXE=python3.7
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="pybind11 numpy mako"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - ". ./build-and-test-py-project.sh"
+  tags:
+  - python3.7
+  - pocl
+  except:
+  - tags
+
+Python 3.6 POCL CL 1.1:
+  script:
+  - export PY_EXE=python3.5
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="pybind11 numpy mako"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - echo "CL_PRETEND_VERSION = '1.1'" > siteconf.py
+  - ". ./build-and-test-py-project.sh"
+  tags:
+  - python3.6
+  - pocl
+  except:
+  - tags
+
+Python 3.6 POCL:
+  script:
+  - export PY_EXE=python3.6
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="pybind11 numpy mako"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - ". ./build-and-test-py-project.sh"
+  tags:
+  - python3.6
+  - pocl
+  except:
+  - tags
+
+Python 3.6 POCL (+GL and special functions):
+  script:
+  - export PY_EXE=python3.6
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="pybind11 numpy mako scipy pyfmmlib"
+  - echo "CL_ENABLE_GL = True" > siteconf.py
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+  - ". ./build-and-test-py-project.sh"
+  tags:
+  - python3.6
+  - pocl
+  except:
+  - tags
+
 Python 2.7 Apple:
   script:
   - export PY_EXE=python2.7
   - export PYOPENCL_TEST=app:cpu
-  - export EXTRA_INSTALL="numpy mako"
+  - export EXTRA_INSTALL="pybind11 numpy mako"
   - export PKG_CONFIG_PATH=/usr/local/opt/libffi/lib/pkgconfig
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
@@ -149,9 +166,10 @@ Python 2.7 Apple:
   except:
   - tags
 
-Python 3.5 Conda Apple:
+Python 3 Conda Apple:
   script:
   - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+  - export CC=gcc
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
   - ". ./build-and-test-py-project-within-miniconda.sh"
   tags:
@@ -163,10 +181,14 @@ PyPy POCL:
   script:
   - export PY_EXE=pypy
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="numpy mako"
+
+  # https://github.com/pybind/pybind11/pull/1494
+  - export EXTRA_INSTALL="git+https://github.com/inducer/pybind11 numpy mako"
+
   - export NO_DOCTESTS=1
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
   - ". ./build-and-test-py-project.sh"
+
   tags:
   - pypy
   - pocl
@@ -175,7 +197,7 @@ PyPy POCL:
 
 Documentation:
   script:
-  - EXTRA_INSTALL="numpy mako"
+  - EXTRA_INSTALL="pybind11 numpy mako"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-docs.sh
   - ". ./build-docs.sh"
   tags:
@@ -188,6 +210,6 @@ Flake8:
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
   - ". ./prepare-and-run-flake8.sh pyopencl test"
   tags:
-  - python3.5
+  - python3.6
   except:
   - tags

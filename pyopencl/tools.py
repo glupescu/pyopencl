@@ -35,7 +35,7 @@ import numpy as np
 from decorator import decorator
 import pyopencl as cl
 from pytools import memoize, memoize_method
-from pyopencl.cffi_cl import _lib
+from pyopencl._cl import bitlog2  # noqa: F401
 from pytools.persistent_dict import KeyBuilder as KeyBuilderBase
 
 import re
@@ -60,9 +60,11 @@ _register_types()
 
 # {{{ imported names
 
-bitlog2 = _lib.bitlog2
-from pyopencl.mempool import (  # noqa
-        PooledBuffer, DeferredAllocator, ImmediateAllocator, MemoryPool)
+from pyopencl._cl import (  # noqa
+        PooledBuffer as PooledBuffer,
+        _tools_DeferredAllocator as DeferredAllocator,
+        _tools_ImmediateAllocator as ImmediateAllocator,
+        MemoryPool as MemoryPool)
 
 # }}}
 
@@ -413,7 +415,7 @@ def get_gl_sharing_context_properties():
     if sys.platform in ["linux", "linux2"]:
         from OpenGL import GLX
         props.append(
-            (ctx_props.GL_CONTEXT_KHR, gl_platform.GetCurrentContext()))
+            (ctx_props.GL_CONTEXT_KHR, GLX.glXGetCurrentContext()))
         props.append(
                 (ctx_props.GLX_DISPLAY_KHR,
                     GLX.glXGetCurrentDisplay()))

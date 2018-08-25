@@ -621,9 +621,10 @@ class Array(object):
                     stacklevel=2)
 
         if self.size:
-            cl.enqueue_copy(queue or self.queue, self.base_data, ary,
+            event1 = cl.enqueue_copy(queue or self.queue, self.base_data, ary,
                     device_offset=self.offset,
                     is_blocking=not async_)
+            self.add_event(event1)
 
     def get(self, queue=None, ary=None, async_=None, **kwargs):
         """Transfer the contents of *self* into *ary* or a newly allocated
@@ -662,7 +663,8 @@ class Array(object):
         if ary is None:
             ary = np.empty(self.shape, self.dtype)
 
-            ary = _as_strided(ary, strides=self.strides)
+            if self.strides != ary.strides:
+                ary = _as_strided(ary, strides=self.strides)
         else:
             if ary.size != self.size:
                 raise TypeError("'ary' has non-matching size")
@@ -677,10 +679,17 @@ class Array(object):
 
         assert self.flags.forc, "Array in get() must be contiguous"
 
+        queue = queue or self.queue
+        if queue is None:
+            raise ValueError("Cannot copy array to host. "
+                    "Array has no queue. Use "
+                    "'new_array = array.with_queue(queue)' "
+                    "to associate one.")
+
         if self.size:
-            cl.enqueue_copy(queue or self.queue, ary, self.base_data,
+            cl.enqueue_copy(queue, ary, self.base_data,
                     device_offset=self.offset,
-                    is_blocking=not async_)
+                    wait_for=self.events, is_blocking=not async_)
 
         return ary
 
@@ -705,9 +714,11 @@ class Array(object):
             result = result.with_queue(queue)
 
         if self.nbytes:
-            cl.enqueue_copy(queue or self.queue,
+            event1 = cl.enqueue_copy(queue or self.queue,
                     result.base_data, self.base_data,
-                    src_offset=self.offset, byte_count=self.nbytes)
+                    src_offset=self.offset, byte_count=self.nbytes,
+                    wait_for=self.events)
+            result.add_event(event1)
 
         return result
 
@@ -1280,12 +1291,22 @@ class Array(object):
     def any(self, queue=None, wait_for=None):
         from pyopencl.reduction import get_any_kernel
         krnl = get_any_kernel(self.context, self.dtype)
-        return krnl(self, queue=queue, wait_for=wait_for)
+        if wait_for is None:
+            wait_for = []
+        result, event1 = krnl(self, queue=queue,
+               wait_for=wait_for + self.events, return_event=True)
+        result.add_event(event1)
+        return result
 
     def all(self, queue=None, wait_for=None):
         from pyopencl.reduction import get_all_kernel
         krnl = get_all_kernel(self.context, self.dtype)
-        return krnl(self, queue=queue, wait_for=wait_for)
+        if wait_for is None:
+            wait_for = []
+        result, event1 = krnl(self, queue=queue,
+               wait_for=wait_for + self.events, return_event=True)
+        result.add_event(event1)
+        return result
 
     @staticmethod
     @elwise_kernel_runner
@@ -1666,11 +1687,13 @@ class Array(object):
 
         if flags is None:
             flags = cl.map_flags.READ | cl.map_flags.WRITE
+        if wait_for is None:
+            wait_for = []
 
         ary, evt = cl.enqueue_map_buffer(
                 queue or self.queue, self.base_data, flags, self.offset,
-                self.shape, self.dtype, strides=self.strides, wait_for=wait_for,
-                is_blocking=is_blocking)
+                self.shape, self.dtype, strides=self.strides,
+                wait_for=wait_for + self.events, is_blocking=is_blocking)
 
         if is_blocking:
             return ary
@@ -1789,6 +1812,9 @@ class Array(object):
         """
 
         queue = queue or self.queue or value.queue
+        if wait_for is None:
+            wait_for = []
+        wait_for = wait_for + self.events
 
         if isinstance(subscript, Array):
             if subscript.dtype.kind != "i":
@@ -2138,11 +2164,16 @@ def multi_take(arrays, indices, out=None, queue=None):
                     cl.kernel_work_group_info.WORK_GROUP_SIZE,
                     queue.device))
 
-        knl(queue, gs, ls,
+        wait_for_this = (indices.events
+            + _builtin_sum((i.events for i in arrays[chunk_slice]), [])
+            + _builtin_sum((o.events for o in out[chunk_slice]), []))
+        evt = knl(queue, gs, ls,
                 indices.data,
                 *([o.data for o in out[chunk_slice]]
                     + [i.data for i in arrays[chunk_slice]]
-                    + [indices.size]))
+                    + [indices.size]), wait_for=wait_for_this)
+        for o in out[chunk_slice]:
+            o.add_event(evt)
 
     return out
 
@@ -2212,7 +2243,10 @@ def multi_take_put(arrays, dest_indices, src_indices, dest_shape=None,
                     queue.device))
 
         from pytools import flatten
-        knl(queue, gs, ls,
+        wait_for_this = (dest_indices.events + src_indices.events
+            + _builtin_sum((i.events for i in arrays[chunk_slice]), [])
+            + _builtin_sum((o.events for o in out[chunk_slice]), []))
+        evt = knl(queue, gs, ls,
                 *([o.data for o in out[chunk_slice]]
                     + [dest_indices.base_data,
                         dest_indices.offset,
@@ -2222,7 +2256,9 @@ def multi_take_put(arrays, dest_indices, src_indices, dest_shape=None,
                         (i.base_data, i.offset)
                         for i in arrays[chunk_slice]))
                     + src_offsets_list[chunk_slice]
-                    + [src_indices.size]))
+                    + [src_indices.size]), wait_for=wait_for_this)
+        for o in out[chunk_slice]:
+            o.add_event(evt)
 
     return out
 
@@ -2237,6 +2273,9 @@ def multi_put(arrays, dest_indices, dest_shape=None, out=None, queue=None,
     a_allocator = arrays[0].allocator
     context = dest_indices.context
     queue = queue or dest_indices.queue
+    if wait_for is None:
+        wait_for = []
+    wait_for = wait_for + dest_indices.events
 
     vec_count = len(arrays)
 
@@ -2288,6 +2327,9 @@ def multi_put(arrays, dest_indices, dest_shape=None, out=None, queue=None,
                     queue.device))
 
         from pytools import flatten
+        wait_for_this = (wait_for
+            + _builtin_sum((i.events for i in arrays[chunk_slice]), [])
+            + _builtin_sum((o.events for o in out[chunk_slice]), []))
         evt = knl(queue, gs, ls,
                 *(
                     list(flatten(
@@ -2300,9 +2342,7 @@ def multi_put(arrays, dest_indices, dest_shape=None, out=None, queue=None,
                     + [use_fill_cla.base_data, use_fill_cla.offset]
                     + [array_lengths_cla.base_data, array_lengths_cla.offset]
                     + [dest_indices.size]),
-                **dict(wait_for=wait_for))
-
-        # FIXME should wait on incoming events
+                **dict(wait_for=wait_for_this))
 
         for o in out[chunk_slice]:
             o.add_event(evt)
@@ -2380,7 +2420,8 @@ def diff(array, queue=None, allocator=None):
     allocator = allocator or array.allocator
 
     result = empty(queue, (n-1,), array.dtype, allocator=allocator)
-    _diff(result, array, queue=queue)
+    event1 = _diff(result, array, queue=queue)
+    result.add_event(event1)
     return result
 
 
@@ -2461,7 +2502,8 @@ def if_positive(criterion, then_, else_, out=None, queue=None):
 
     if out is None:
         out = empty_like(then_)
-    _if_positive(out, criterion, then_, else_, queue=queue)
+    event1 = _if_positive(out, criterion, then_, else_, queue=queue)
+    out.add_event(event1)
     return out
 
 
@@ -2494,7 +2536,10 @@ def sum(a, dtype=None, queue=None, slice=None):
     """
     from pyopencl.reduction import get_sum_kernel
     krnl = get_sum_kernel(a.context, dtype, a.dtype)
-    return krnl(a, queue=queue, slice=slice)
+    result, event1 = krnl(a, queue=queue, slice=slice, wait_for=a.events,
+            return_event=True)
+    result.add_event(event1)
+    return result
 
 
 def dot(a, b, dtype=None, queue=None, slice=None):
@@ -2503,7 +2548,10 @@ def dot(a, b, dtype=None, queue=None, slice=None):
     """
     from pyopencl.reduction import get_dot_kernel
     krnl = get_dot_kernel(a.context, dtype, a.dtype, b.dtype)
-    return krnl(a, b, queue=queue, slice=slice)
+    result, event1 = krnl(a, b, queue=queue, slice=slice,
+            wait_for=a.events + b.events, return_event=True)
+    result.add_event(event1)
+    return result
 
 
 def vdot(a, b, dtype=None, queue=None, slice=None):
@@ -2514,7 +2562,10 @@ def vdot(a, b, dtype=None, queue=None, slice=None):
     from pyopencl.reduction import get_dot_kernel
     krnl = get_dot_kernel(a.context, dtype, a.dtype, b.dtype,
             conjugate_first=True)
-    return krnl(a, b, queue=queue, slice=slice)
+    result, event1 = krnl(a, b, queue=queue, slice=slice,
+            wait_for=a.events + b.events, return_event=True)
+    result.add_event(event1)
+    return result
 
 
 def subset_dot(subset, a, b, dtype=None, queue=None, slice=None):
@@ -2524,14 +2575,20 @@ def subset_dot(subset, a, b, dtype=None, queue=None, slice=None):
     from pyopencl.reduction import get_subset_dot_kernel
     krnl = get_subset_dot_kernel(
             a.context, dtype, subset.dtype, a.dtype, b.dtype)
-    return krnl(subset, a, b, queue=queue, slice=slice)
+    result, event1 = krnl(subset, a, b, queue=queue, slice=slice,
+            wait_for=subset.events + a.events + b.events, return_event=True)
+    result.add_event(event1)
+    return result
 
 
 def _make_minmax_kernel(what):
     def f(a, queue=None):
         from pyopencl.reduction import get_minmax_kernel
         krnl = get_minmax_kernel(a.context, what, a.dtype)
-        return krnl(a,  queue=queue)
+        result, event1 = krnl(a, queue=queue, wait_for=a.events,
+                return_event=True)
+        result.add_event(event1)
+        return result
 
     return f
 
@@ -2551,8 +2608,10 @@ def _make_subset_minmax_kernel(what):
     def f(subset, a, queue=None, slice=None):
         from pyopencl.reduction import get_subset_minmax_kernel
         krnl = get_subset_minmax_kernel(a.context, what, a.dtype, subset.dtype)
-        return krnl(subset, a,  queue=queue, slice=slice)
-
+        result, event1 = krnl(subset, a,  queue=queue, slice=slice,
+                wait_for=a.events + subset.events, return_event=True)
+        result.add_event(event1)
+        return result
     return f
 
 
@@ -2576,12 +2635,15 @@ def cumsum(a, output_dtype=None, queue=None,
 
     if output_dtype is None:
         output_dtype = a.dtype
+    if wait_for is None:
+        wait_for = []
 
     result = a._new_like_me(output_dtype)
 
     from pyopencl.scan import get_cumsum_kernel
     krnl = get_cumsum_kernel(a.context, a.dtype, output_dtype)
-    evt = krnl(a, result, queue=queue, wait_for=wait_for)
+    evt = krnl(a, result, queue=queue, wait_for=wait_for + a.events)
+    result.add_event(evt)
 
     if return_event:
         return evt, result

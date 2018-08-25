@@ -37,9 +37,10 @@ import pyopencl.tools as cl_tools
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 from pyopencl.characterize import has_double_support, has_struct_arg_count_bug
-from pyopencl.cffi_cl import _PYPY
 
 from pyopencl.clrandom import RanluxGenerator, PhiloxGenerator, ThreefryGenerator
+
+_PYPY = cl._PYPY
 
 
 # {{{ helpers
@@ -580,7 +581,7 @@ def test_bitwise(ctx_factory):
 
 @pytest.mark.parametrize("rng_class",
         [RanluxGenerator, PhiloxGenerator, ThreefryGenerator])
-@pytest.mark.parametrize("ary_size", [300, 301, 302, 303, 10007])
+@pytest.mark.parametrize("ary_size", [300, 301, 302, 303, 10007, 1000000])
 def test_random_float_in_range(ctx_factory, rng_class, ary_size, plot_hist=False):
     context = ctx_factory()
     queue = cl.CommandQueue(context)
@@ -605,16 +606,22 @@ def test_random_float_in_range(ctx_factory, rng_class, ary_size, plot_hist=False
             pt.hist(ran.get(), 30)
             pt.show()
 
-        assert (0 < ran.get()).all()
-        assert (ran.get() < 1).all()
+        assert (0 <= ran.get()).all()
+        assert (ran.get() <= 1).all()
 
         if rng_class is RanluxGenerator:
             gen.synchronize(queue)
 
         ran = cl_array.zeros(queue, ary_size, dtype)
         gen.fill_uniform(ran, a=4, b=7)
-        assert (4 < ran.get()).all()
-        assert (ran.get() < 7).all()
+        ran_host = ran.get()
+
+        for cond in [4 <= ran_host,  ran_host <= 7]:
+            good = cond.all()
+            if not good:
+                print(np.where(~cond))
+                print(ran_host[~cond])
+            assert good
 
         ran = gen.normal(queue, ary_size, dtype, mu=10, sigma=3)
 
@@ -1211,6 +1218,79 @@ def test_multi_put(ctx_factory):
     cl_array.multi_put(cl_arrays, idx, out=out_arrays)
 
     assert np.all(np.all(out_compare[i] == out_arrays[i].get()) for i in range(9))
+
+
+def test_outoforderqueue_get(ctx_factory):
+    context = ctx_factory()
+    try:
+        queue = cl.CommandQueue(context,
+               properties=cl.command_queue_properties.OUT_OF_ORDER_EXEC_MODE_ENABLE)
+    except Exception:
+        pytest.skip("out-of-order queue not available")
+    a = np.random.rand(10**6).astype(np.dtype('float32'))
+    a_gpu = cl_array.to_device(queue, a)
+    b_gpu = a_gpu + a_gpu**5 + 1
+    b1 = b_gpu.get()  # testing that this waits for events
+    b = a + a**5 + 1
+    assert np.abs(b1 - b).mean() < 1e-5
+
+
+def test_outoforderqueue_copy(ctx_factory):
+    context = ctx_factory()
+    try:
+        queue = cl.CommandQueue(context,
+               properties=cl.command_queue_properties.OUT_OF_ORDER_EXEC_MODE_ENABLE)
+    except Exception:
+        pytest.skip("out-of-order queue not available")
+    a = np.random.rand(10**6).astype(np.dtype('float32'))
+    a_gpu = cl_array.to_device(queue, a)
+    c_gpu = a_gpu**2 - 7
+    b_gpu = c_gpu.copy()  # testing that this waits for and creates events
+    b_gpu *= 10
+    queue.finish()
+    b1 = b_gpu.get()
+    b = 10 * (a**2 - 7)
+    assert np.abs(b1 - b).mean() < 1e-5
+
+
+def test_outoforderqueue_indexing(ctx_factory):
+    context = ctx_factory()
+    try:
+        queue = cl.CommandQueue(context,
+               properties=cl.command_queue_properties.OUT_OF_ORDER_EXEC_MODE_ENABLE)
+    except Exception:
+        pytest.skip("out-of-order queue not available")
+    a = np.random.rand(10**6).astype(np.dtype('float32'))
+    i = (8e5 + 1e5 * np.random.rand(10**5)).astype(np.dtype('int32'))
+    a_gpu = cl_array.to_device(queue, a)
+    i_gpu = cl_array.to_device(queue, i)
+    c_gpu = (a_gpu**2)[i_gpu - 10000]
+    b_gpu = 10 - a_gpu
+    b_gpu[:] = 8 * a_gpu
+    b_gpu[i_gpu + 10000] = c_gpu - 10
+    queue.finish()
+    b1 = b_gpu.get()
+    c = (a**2)[i - 10000]
+    b = 8 * a
+    b[i + 10000] = c - 10
+    assert np.abs(b1 - b).mean() < 1e-5
+
+
+def test_outoforderqueue_reductions(ctx_factory):
+    context = ctx_factory()
+    try:
+        queue = cl.CommandQueue(context,
+               properties=cl.command_queue_properties.OUT_OF_ORDER_EXEC_MODE_ENABLE)
+    except Exception:
+        pytest.skip("out-of-order queue not available")
+    # 0/1 values to avoid accumulated rounding error
+    a = (np.random.rand(10**6) > 0.5).astype(np.dtype('float32'))
+    a[800000] = 10  # all<5 looks true until near the end
+    a_gpu = cl_array.to_device(queue, a)
+    b1 = cl_array.sum(a_gpu).get()
+    b2 = cl_array.dot(a_gpu, 3 - a_gpu).get()
+    b3 = (a_gpu < 5).all().get()
+    assert b1 == a.sum() and b2 == a.dot(3 - a) and b3 == 0
 
 
 if __name__ == "__main__":
